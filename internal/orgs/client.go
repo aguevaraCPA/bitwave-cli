@@ -9,6 +9,7 @@ import (
 	"github.com/bitwave-io/bitwave-cli/internal/apierr"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -86,6 +87,27 @@ func (c *Client) List() ([]Org, error) {
 		return direct, nil
 	}
 	return nil, fmt.Errorf("unrecognized /v3/orgs response: %s", string(data))
+}
+
+// Get returns one organization without enumerating every organization the
+// identity can access. This is the preferred onboarding check because an
+// org-scoped token may be allowed to read its org while /v3/orgs is not.
+func (c *Client) Get(id string) (*Org, error) {
+	data, err := c.do("GET", "/v3/orgs/"+url.PathEscape(id), nil)
+	if err != nil {
+		return nil, err
+	}
+	var org Org
+	if err := json.Unmarshal(data, &org); err == nil && org.ID != "" {
+		return &org, nil
+	}
+	var wrapper struct {
+		Org Org `json:"org"`
+	}
+	if err := json.Unmarshal(data, &wrapper); err == nil && wrapper.Org.ID != "" {
+		return &wrapper.Org, nil
+	}
+	return nil, fmt.Errorf("unrecognized /v3/orgs/%s response: %s", id, string(data))
 }
 
 // CreateRequest mirrors the minimum POST /v3/orgs body.

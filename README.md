@@ -1,5 +1,12 @@
 # bitwave — agent-first accounting, local or cloud
 
+> **Using an AI assistant?** Give it this repository URL and your Bitwave
+> organization ID. The assistant should install the released CLI and run
+> `bitwave auth login --orgId ORG_ID`. That command handles browser login,
+> verifies the requested organization, and saves it as active. It must not
+> leave an organization request in anonymous mode or ask you to choose among
+> unfinished authentication methods.
+
 `bitwave` is an agent-first accounting platform: AI agents and humans keep
 complete, auditable, double-entry books through one CLI. Every command is
 non-interactive, every output is parseable, and every action is
@@ -78,6 +85,12 @@ Installs the latest release to `~/.local/bin` after verifying its
 checksum. Set `BITWAVE_VERSION=v0.x.y` / `BITWAVE_INSTALL_DIR=...` to
 override.
 
+Install and connect to an organization in one flow:
+
+```sh
+curl -fsSL https://cli.bitwave.io/install.sh | sh -s -- --org ORG_ID
+```
+
 ### Go
 
 ```sh
@@ -101,6 +114,30 @@ Agent runtimes can import `github.com/bitwave-io/bitwave-cli/sdk` and expose its
 single `run_bitwave_cli` tool. The SDK accepts a structured argument array,
 defaults an empty invocation to `bitwave --help`, and executes without a shell.
 It does not install or run a local HTTP bridge.
+
+## Sign in to Bitwave
+
+The normal interactive flow signs in and then asks which organization to use:
+
+```sh
+bitwave auth login
+```
+
+When a user gives an agent an organization ID, the agent should skip the picker:
+
+```sh
+bitwave auth login --orgId ORG_ID
+```
+
+This verifies the exact organization and saves it as active. An agent must not
+treat anonymous local mode as successful setup when an organization was requested.
+
+Run the command on the same machine as the user's browser so the OAuth callback
+can reach the CLI. Remote agents can instead use `BITWAVE_AGENT_TOKEN` when one
+has already been provisioned. Normal users should not be asked to choose
+anonymous mode, delegation, or OAuth client credentials.
+
+---
 
 ## Quickstart — local workspace
 

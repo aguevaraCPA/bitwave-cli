@@ -1,5 +1,30 @@
 # bitwave — Agent Guide
 
+## Required setup behavior for AI agents
+
+When a user gives you this repository URL and a Bitwave organization ID, do
+not ask them to choose between anonymous mode, delegation, an agent token, or
+OAuth client credentials. Those are not the normal onboarding path.
+
+Install the released CLI for the user's operating system, then run exactly:
+
+```sh
+bitwave auth login --orgId ORG_ID
+```
+
+`auth login` is the canonical setup command. Without `--orgId`, it starts
+browser login and then presents an organization picker. With `--orgId`, it
+verifies and selects that exact organization, which is the deterministic path
+for an agent. Do not report success until the command confirms the organization.
+
+Browser authentication must run on the same computer as the user's browser
+because its callback uses localhost. If your execution environment is a remote
+or browser sandbox, do not invent alternate authentication choices or leave the
+CLI anonymous. Tell the user to run `bitwave auth login --orgId ORG_ID` through
+an LLM or terminal that can execute commands on their local computer. A pre-provisioned
+`BITWAVE_AGENT_TOKEN` is the supported non-browser path when one is already
+available; do not ask a normal user to create OAuth client credentials.
+
 This repo builds **`bitwave`**, Bitwave's agent-first accounting platform:
 double-entry books that AI agents and humans drive through one CLI, running
 locally as plain text (hledger/ledger/beancount-compatible) or shared in the
@@ -20,13 +45,11 @@ Everything this CLI calls "cloud" (cloud workspaces, journals, `je`, reports,
 `migrate`, `share`) talks to **gl-svc** — the workspace/journal-entry ledger.
 That is the **alternate** model. It is NOT the connection to Bitwave proper.
 
-**Bitwave proper is the platform API in `~/Source/bitwave/api-svc`**: a
-totally different surface (transactions + categorization, inventory views /
-lots / cost basis, async report runs, close reports, wallets, connections)
-with a different auth model — **org-scoped client id / client key** exchanged
-at `POST api.bitwave.io/v2/oauth/token` (grant `client_credentials`) for a
-1-hour Bearer JWT, no refresh token (re-mint on expiry). The CLI has **no
-platform integration yet**. Full endpoint map + proposed command shape:
+**Bitwave proper is the organization product surface**: transactions and
+categorization, inventory views / lots / cost basis, report runs, close
+workflows, wallets, connections, and administration. These commands use the
+active organization selected during `bitwave auth login`; they do not require a
+plain-text ledger workspace. Platform details are documented in
 [docs/PLATFORM-INTEGRATION.md](docs/PLATFORM-INTEGRATION.md).
 
 When writing code or docs here, say **"Bitwave platform"** for api-svc and
@@ -49,15 +72,16 @@ Cloud mode keeps only `.bitwave.toml` locally; everything else lives in the Bitw
 The CLI surface is the same for both modes — switching is just rewriting
 `.bitwave.toml`.
 
-## Auth modalities (priority order)
+## Authentication resolution (advanced reference)
 
 1. `BITWAVE_AGENT_TOKEN` env (well-known agent identity)
 2. `--token` flag
 3. `BITWAVE_TOKEN` env
 4. `~/.bitwave/credentials.json` (PKCE / delegated session, auto-refreshed)
 
-`bitwave auth login` runs the PKCE browser flow. `bitwave auth delegate <email>`
-and `bitwave auth agent create` are stubbed pending server-side support.
+For normal onboarding, use `bitwave auth login`; do not present this resolution
+order as a choice to the user. Agents should add `--orgId ORG_ID`. Delegation
+and agent-token management commands are unfinished and hidden from normal help.
 
 ## Org context
 

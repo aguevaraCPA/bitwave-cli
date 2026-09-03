@@ -6,12 +6,26 @@
 # Options (env vars):
 #   BITWAVE_VERSION      release tag to install (e.g. v0.2.0); default: latest
 #   BITWAVE_INSTALL_DIR  target directory; default: ~/.local/bin
+# Options (arguments):
+#   --org ORG_ID         authenticate, verify, and select this org after install
 set -eu
 
 REPO="bitwave-io/bitwave-cli"
 INSTALL_DIR="${BITWAVE_INSTALL_DIR:-$HOME/.local/bin}"
 
 err() { printf 'bitwave install: %s\n' "$1" >&2; exit 1; }
+
+ORG_ID=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --org)
+      [ "$#" -ge 2 ] || err "--org requires an organization ID"
+      ORG_ID="$2"
+      shift 2
+      ;;
+    *) err "unknown argument: $1" ;;
+  esac
+done
 
 command -v curl >/dev/null 2>&1 || err "curl is required"
 command -v tar >/dev/null 2>&1 || err "tar is required"
@@ -71,3 +85,7 @@ case ":$PATH:" in
   *) printf 'note: %s is not on your PATH — add:\n  export PATH="%s:$PATH"\n' "$INSTALL_DIR" "$INSTALL_DIR" ;;
 esac
 "$INSTALL_DIR/bitwave" version || true
+
+if [ -n "$ORG_ID" ]; then
+  "$INSTALL_DIR/bitwave" auth login --orgId "$ORG_ID"
+fi
