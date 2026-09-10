@@ -45,3 +45,11 @@ var (
 	_ Store = (*LocalWorkspace)(nil)
 	_ Store = (*Cloud)(nil)
 )
+
+// JournalOfEntryID recovers the journal id from a journal-prefixed entry id
+// ("<journal>:<YYYYMMDD>-<seq>"). Stores merge every journal into one Project,
+// so the report layer needs this to scope a merged view back to one journal.
+func JournalOfEntryID(id string) (string, bool) {
+	j, _, ok := splitEntryID(id)
+	return j, ok
+}
