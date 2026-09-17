@@ -41,6 +41,16 @@ func NewCloud(baseURL, orgId, workspaceId string, tokenResolver func() (string, 
 	}
 }
 
+// SetRequestContext injects the caller's transport and cancellation into all
+// workspace and ledger requests made by this short-lived store.
+func (c *Cloud) SetRequestContext(ctx context.Context, client *http.Client) {
+	c.workspaces.Context = ctx
+	if client != nil {
+		c.httpClient = client
+		c.workspaces.HTTPClient = client
+	}
+}
+
 func (c *Cloud) Project(ctx context.Context) (*model.Project, error) {
 	var workspace workspaceDTO
 	if err := c.get(ctx, c.workspacePath(), &workspace); err != nil {

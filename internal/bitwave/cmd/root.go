@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bitwave-io/bitwave-cli/internal/auth"
+	"github.com/bitwave-io/bitwave-cli/internal/operations"
 	"github.com/bitwave-io/bitwave-cli/internal/telemetry"
 	"github.com/bitwave-io/bitwave-cli/internal/update"
 )
@@ -153,39 +154,20 @@ Tip: run ` + "`bitwave <command> --help`" + ` on any subcommand to see flags + e
 
 	addInGroup(groupAuth, newAuthCmd())
 	addInGroup(groupAccount, newOrgCmd())
-	addInGroup(groupAccount, newWorkspaceCmd())
-	addInGroup(groupAccount, newJournalCmd())
-	addInGroup(groupAccount, newInitCmd())
-
-	addInGroup(groupLedger, newJECmd())
-	addInGroup(groupLedger, newAcctCmd())
-	addInGroup(groupLedger, newPriceCmd())
-	addInGroup(groupLedger, newWalletsCmd())
-	addInGroup(groupLedger, newExpenseCmd())
-
-	addInGroup(groupReports, newBalCmd())
-	addInGroup(groupReports, newRegCmd())
-	addInGroup(groupReports, newPrintCmd())
-	addInGroup(groupReports, newAccountsCmd())
-	addInGroup(groupReports, newContactsCmd())
-	addInGroup(groupReports, newCommoditiesCmd())
-	addInGroup(groupReports, newEquityCmd())
-	addInGroup(groupReports, newClearedCmd())
-	addInGroup(groupReports, newCSVCmd())
-	addInGroup(groupReports, newStatsCmd())
-	addInGroup(groupReports, newOrgReportCmd())
-
-	addInGroup(groupWorkflows, newMigrateCmd())
-	addInGroup(groupWorkflows, newOrgTransactionsCmd())
-	addInGroup(groupWorkflows, newOrgInvoicesCmd())
-	addInGroup(groupWorkflows, newOrgRulesCmd())
-	addInGroup(groupWorkflows, newOrgInventoryCmd())
-	addInGroup(groupWorkflows, newOrgPricingCmd())
-	addInGroup(groupWorkflows, newOrgImportsCmd())
-	addInGroup(groupWorkflows, newAPICmd())
-	addInGroup(groupWorkflows, newCloseCmd())
-	addInGroup(groupWorkflows, newShareCmd())
-	addInGroup(groupWorkflows, newSharesCmd())
+	for _, definition := range operations.NewRoot().Commands() {
+		group := groupWorkflows
+		switch definition.Name() {
+		case "org", "status", "version":
+			continue // terminal configuration/presentation belongs to this adapter
+		case "workspace", "journal", "init":
+			group = groupAccount
+		case "je", "acct", "price", "wallets", "expense":
+			group = groupLedger
+		case "bal", "reg", "print", "accounts", "contacts", "commodities", "equity", "cleared", "csv", "stats", "report":
+			group = groupReports
+		}
+		addInGroup(group, sdkCommand(definition))
+	}
 
 	addInGroup(groupCLI, newStatusCmd())
 	addInGroup(groupCLI, newVersionCmd())

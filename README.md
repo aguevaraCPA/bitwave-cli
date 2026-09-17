@@ -108,12 +108,40 @@ sudo install -m 755 bitwave /usr/local/bin/bitwave
 
 You'll need Go 1.25+.
 
-### Embedding the CLI
+### Shared SDK
 
-Agent runtimes can import `github.com/bitwave-io/bitwave-cli/sdk` and expose its
-single `run_bitwave_cli` tool. The SDK accepts a structured argument array,
-defaults an empty invocation to `bitwave --help`, and executes without a shell.
-It does not install or run a local HTTP bridge.
+Import `github.com/bitwave-io/bitwave-cli/sdk` for request-scoped business
+operations. The terminal CLI and both actions-svc MCP interfaces call these
+same handlers. The SDK does not execute Cobra commands, terminal commands,
+shells, binaries, or subprocesses.
+
+`sdk.Operations()` returns the operation catalog and JSON schemas.
+`sdk.NewClient(options).Invoke(ctx, sdk.Request{Operation: name, Arguments: jsonInput})`
+invokes an operation directly, preserving explicit false values, integer
+precision, and array elements. `sdk.ParseCommand` and `sdk.ExecuteWithOptions`
+are compatibility adapters for familiar argv syntax; they parse parameters
+into the same structured SDK calls. Empty argv returns SDK help.
+
+Pass organization, credentials, endpoint configuration, and workspace explicitly
+in `sdk.Options`. The SDK never reads CLI credentials/environment settings or
+changes process cwd/environment. Each invocation has independent parameters,
+input, output, and cancellation. File access is rooted at `WorkingDirectory`,
+including ledger includes and wallet files; hosted callers must leave
+`UnrestrictedFiles` and `AllowEndpointOverrides` false. Request input may be
+supplied with `sdk.Request.Input` (or the generic tool's `stdin` field) for
+`--input -` and `--body-file -`. Hosted results are bounded to 1 MiB per output
+stream; terminal adapters can provide streaming output writers.
+
+Local ledger/workspace operations are serialized per canonical workspace root
+within one process to keep journal updates and returned entry IDs consistent.
+Independent workspaces and remote-only operations remain concurrent. Callers
+sharing files across processes/replicas need external coordination and must
+not configure overlapping managed workspace roots.
+
+Interactive login, credential/org selection, self-update, telemetry, and shell
+completion remain terminal-only. Mutation retries are not automatically
+deduplicated: callers must use a downstream-supported idempotency mechanism or
+reconcile uncertain results before retrying.
 
 ## Sign in to Bitwave
 

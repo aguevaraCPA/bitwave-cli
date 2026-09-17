@@ -39,30 +39,46 @@ const DefaultJournal = "default"
 
 // LocalWorkspace reads/writes a bitwave workspace as plain-text files.
 type LocalWorkspace struct {
-	Dir string
-	Cfg *config.Config
+	Dir   string
+	Cfg   *config.Config
+	Files config.Filesystem
+}
+
+func (s *LocalWorkspace) files() config.Filesystem {
+	if s.Files != nil {
+		return s.Files
+	}
+	return config.OSFilesystem()
 }
 
 // OpenLocal opens an existing local workspace at dir. Returns
 // config.ErrNotAWorkspace if the dir has no .bitwave.toml.
 func OpenLocal(dir string) (*LocalWorkspace, error) {
-	cfg, err := config.Load(dir)
+	return OpenLocalFS(config.OSFilesystem(), dir)
+}
+
+func OpenLocalFS(files config.Filesystem, dir string) (*LocalWorkspace, error) {
+	cfg, err := config.LoadFS(files, dir)
 	if err != nil {
 		return nil, err
 	}
 	if cfg.Mode != config.ModeLocal {
 		return nil, fmt.Errorf("workspace at %s is in %s mode, not local", dir, cfg.Mode)
 	}
-	return &LocalWorkspace{Dir: dir, Cfg: cfg}, nil
+	return &LocalWorkspace{Dir: dir, Cfg: cfg, Files: files}, nil
 }
 
 // InitLocal scaffolds an empty local workspace at dir. Refuses to clobber an
 // existing .bitwave.toml.
 func InitLocal(dir, name, baseCurrency string) (*LocalWorkspace, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	return InitLocalFS(config.OSFilesystem(), dir, name, baseCurrency)
+}
+
+func InitLocalFS(files config.Filesystem, dir, name, baseCurrency string) (*LocalWorkspace, error) {
+	if err := files.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	if _, err := os.Stat(filepath.Join(dir, config.FileName)); err == nil {
+	if _, err := files.Stat(filepath.Join(dir, config.FileName)); err == nil {
 		return nil, fmt.Errorf("workspace already initialized at %s", dir)
 	}
 	cfg := &config.Config{
@@ -71,22 +87,22 @@ func InitLocal(dir, name, baseCurrency string) (*LocalWorkspace, error) {
 		BaseCurrency:   baseCurrency,
 		DefaultJournal: DefaultJournal,
 	}
-	if err := config.Save(dir, cfg); err != nil {
+	if err := config.SaveFS(files, dir, cfg); err != nil {
 		return nil, err
 	}
 	for _, f := range []string{AccountsFile, PricesFile} {
-		if err := os.WriteFile(filepath.Join(dir, f), nil, 0o644); err != nil {
+		if err := files.WriteFile(filepath.Join(dir, f), nil, 0o644); err != nil {
 			return nil, err
 		}
 	}
-	return &LocalWorkspace{Dir: dir, Cfg: cfg}, nil
+	return &LocalWorkspace{Dir: dir, Cfg: cfg, Files: files}, nil
 }
 
 func (s *LocalWorkspace) path(name string) string { return filepath.Join(s.Dir, name) }
 
 // JournalIds returns the ids of all .journal files in the workspace, sorted.
 func (s *LocalWorkspace) JournalIds() ([]string, error) {
-	entries, err := os.ReadDir(s.Dir)
+	entries, err := s.files().ReadDir(s.Dir)
 	if err != nil {
 		return nil, err
 	}
@@ -107,11 +123,25 @@ func (s *LocalWorkspace) JournalIds() ([]string, error) {
 
 // EnsureJournal creates an empty <id>.journal file if it doesn't exist.
 func (s *LocalWorkspace) EnsureJournal(ctx context.Context, id string) error {
-	path := s.path(id + JournalExt)
-	if _, err := os.Stat(path); err == nil {
-		return nil
+	if err := ValidateJournalID(id); err != nil {
+		return err
 	}
-	return os.WriteFile(path, nil, 0o644)
+	path := s.path(id + JournalExt)
+	if _, err := s.files().Stat(path); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return s.files().WriteFile(path, nil, 0o644)
+}
+
+// ValidateJournalID keeps journal IDs as filename stems, not paths. This also
+// protects IDs decoded from entry prefixes and workspace config files.
+func ValidateJournalID(id string) error {
+	if id == "" || id == "." || id == ".." || strings.ContainsAny(id, "/\\\x00:") {
+		return fmt.Errorf("invalid journal id %q: expected a filename stem", id)
+	}
+	return nil
 }
 
 // ResolveJournal picks the journal a write should target.
@@ -161,7 +191,10 @@ func (s *LocalWorkspace) ParseJournalEntries(id string) ([]model.Entry, error) {
 }
 
 func (s *LocalWorkspace) parseJournal(id string) ([]model.Entry, error) {
-	data, err := os.ReadFile(s.path(id + JournalExt))
+	if err := ValidateJournalID(id); err != nil {
+		return nil, err
+	}
+	data, err := s.files().ReadFile(s.path(id + JournalExt))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -181,7 +214,7 @@ func (s *LocalWorkspace) parseJournal(id string) ([]model.Entry, error) {
 }
 
 func (s *LocalWorkspace) parseFile(name string) (*model.Project, error) {
-	data, err := os.ReadFile(s.path(name))
+	data, err := s.files().ReadFile(s.path(name))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &model.Project{}, nil
@@ -231,7 +264,7 @@ func (s *LocalWorkspace) AddAccount(ctx context.Context, a model.Account) error 
 		return err
 	}
 	line := strings.TrimRight(buf.String(), "\n") + "\n"
-	return appendFile(s.path(AccountsFile), line)
+	return s.appendFile(s.path(AccountsFile), line)
 }
 
 // AddPrice appends to prices.ledger.
@@ -241,7 +274,7 @@ func (s *LocalWorkspace) AddPrice(ctx context.Context, p model.Price) error {
 	if err := format.Print(&buf, tmp); err != nil {
 		return err
 	}
-	return appendFile(s.path(PricesFile), strings.TrimSpace(buf.String())+"\n")
+	return s.appendFile(s.path(PricesFile), strings.TrimSpace(buf.String())+"\n")
 }
 
 // AddEntryToJournal appends e to <journalId>.journal. The synthetic id for the
@@ -259,7 +292,7 @@ func (s *LocalWorkspace) AddEntryToJournal(ctx context.Context, journalId string
 		return "", err
 	}
 	out := strings.TrimSpace(buf.String()) + "\n\n"
-	if err := appendFile(s.path(journalId+JournalExt), out); err != nil {
+	if err := s.appendFile(s.path(journalId+JournalExt), out); err != nil {
 		return "", err
 	}
 	ents, err := s.parseJournal(journalId)
@@ -314,7 +347,7 @@ func (s *LocalWorkspace) SetEntryStatus(ctx context.Context, entryID string, sta
 	if err := format.Print(&buf, tmp); err != nil {
 		return err
 	}
-	return os.WriteFile(s.path(journalId+JournalExt), buf.Bytes(), 0o644)
+	return s.files().WriteFile(s.path(journalId+JournalExt), buf.Bytes(), 0o644)
 }
 
 // Journals satisfies the Store interface (alias for JournalIds, ignoring ctx).
@@ -367,8 +400,8 @@ func splitEntryID(id string) (journal, rest string, ok bool) {
 	return id[:i], id[i+1:], true
 }
 
-func appendFile(path, content string) error {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+func (s *LocalWorkspace) appendFile(path, content string) error {
+	f, err := s.files().OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}

@@ -18,12 +18,12 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/bitwave-io/bitwave-cli/internal/apierr"
+	"github.com/bitwave-io/bitwave-cli/internal/bitwave/config"
 )
 
 // UploadResponse is the JSON body the cloud ledger returns from /v1/workspaces:share.
@@ -49,6 +49,7 @@ type Client struct {
 	BaseURL       string
 	TokenResolver func() (string, error)
 	HTTPClient    *http.Client
+	Files         config.Filesystem
 }
 
 // New constructs a client. Pass a TokenResolver only if you intend to call
@@ -71,7 +72,11 @@ func New(baseURL string, tokenResolver func() (string, error)) *Client {
 // allowlist gate too, but the client filters them first so a misnamed file
 // doesn't blow the upload.
 func (c *Client) UploadAndShare(ctx context.Context, workspaceDir, recipientEmail, message string) (*UploadResponse, error) {
-	zipBuf, err := buildZip(workspaceDir)
+	files := c.Files
+	if files == nil {
+		files = config.OSFilesystem()
+	}
+	zipBuf, err := buildZipFS(files, workspaceDir)
 	if err != nil {
 		return nil, fmt.Errorf("build workspace zip: %w", err)
 	}
@@ -164,7 +169,11 @@ func (c *Client) Adopt(ctx context.Context, workspaceId, newName string) (*Accep
 // accepts. The server enforces the same allowlist + size caps; filtering here
 // just gives the operator a clearer error before paying upload cost.
 func buildZip(workspaceDir string) (*bytes.Buffer, error) {
-	entries, err := os.ReadDir(workspaceDir)
+	return buildZipFS(config.OSFilesystem(), workspaceDir)
+}
+
+func buildZipFS(files config.Filesystem, workspaceDir string) (*bytes.Buffer, error) {
+	entries, err := files.ReadDir(workspaceDir)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +188,7 @@ func buildZip(workspaceDir string) (*bytes.Buffer, error) {
 		if !isWorkspaceFile(name) {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(workspaceDir, name))
+		data, err := files.ReadFile(filepath.Join(workspaceDir, name))
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", name, err)
 		}

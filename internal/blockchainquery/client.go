@@ -4,6 +4,7 @@
 package blockchainquery
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/bitwave-io/bitwave-cli/internal/apierr"
@@ -19,6 +20,7 @@ type Client struct {
 	BaseURL       string
 	TokenResolver func() (string, error)
 	HTTPClient    *http.Client
+	Context       context.Context
 }
 
 // New returns a Client with a 30s default timeout. TokenResolver may be nil
@@ -94,7 +96,11 @@ func (c *Client) ScanAddress(req ScanRequest) (*ScanResponse, error) {
 }
 
 func (c *Client) do(method, path string) ([]byte, error) {
-	req, err := http.NewRequest(method, c.BaseURL+path, nil)
+	ctx := c.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, nil)
 	if err != nil {
 		return nil, err
 	}
