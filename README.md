@@ -108,12 +108,62 @@ sudo install -m 755 bitwave /usr/local/bin/bitwave
 
 You'll need Go 1.25+.
 
-### Embedding the CLI
+### Shared SDK
 
-Agent runtimes can import `github.com/bitwave-io/bitwave-cli/sdk` and expose its
-single `run_bitwave_cli` tool. The SDK accepts a structured argument array,
-defaults an empty invocation to `bitwave --help`, and executes without a shell.
-It does not install or run a local HTTP bridge.
+Import `github.com/bitwave-io/bitwave-cli/sdk` for request-scoped business
+operations. The terminal CLI and both actions-svc MCP interfaces call these
+same handlers. The SDK does not execute Cobra commands, terminal commands,
+shells, binaries, or subprocesses.
+
+`sdk.Operations()` returns the operation catalog and JSON schemas.
+`sdk.NewClient(options).Invoke(ctx, sdk.Request{Operation: name, Arguments: jsonInput})`
+invokes an operation directly, preserving explicit false values, integer
+precision, and array elements. `sdk.ParseCommand` and `sdk.ExecuteWithOptions`
+are compatibility adapters for familiar argv syntax; they parse parameters
+into the same structured SDK calls. Empty argv returns SDK help.
+
+Pass organization, credentials, endpoint configuration, and workspace explicitly
+in `sdk.Options`. The SDK never reads CLI credentials/environment settings or
+changes process cwd/environment. Each invocation has independent parameters,
+input, output, and cancellation. File access is rooted at `WorkingDirectory`,
+including ledger includes and wallet files; hosted callers must leave
+`UnrestrictedFiles` and `AllowEndpointOverrides` false. Request input may be
+supplied with `sdk.Request.Input` (or the generic tool's `stdin` field) for
+`--input -` and `--body-file -`. Hosted results are bounded to 1 MiB per output
+stream; terminal adapters can provide streaming output writers.
+
+Each catalog entry's `EndpointParameters` lists declared network-destination
+inputs. The SDK rejects these when `AllowEndpointOverrides` is false, regardless
+of their flag names. Hosted adapters should also omit them from tool schemas;
+ordinary URL-valued data is not automatically an endpoint override. New operation
+parameters must pass the reviewed catalog-policy snapshot in
+`sdk/testdata/catalog_parameter_policy.txt`, including additions to existing
+operations. Endpoint metadata is a declaration, not automatic URL inference.
+
+`Client.Invoke` contains panics on its calling goroutine and returns the sanitized
+`sdk.ErrOperationPanic`, detectable with `errors.Is`. It releases workspace locks
+and closes request filesystems, discarding partial captured output. It cannot
+undo completed writes, retract streamed terminal output, catch another goroutine's
+panic, or recover fatal runtime failures. Treat mutation outcomes as unknown and
+do not automatically retry after this error.
+
+Terminal workspace-ledger commands derive their request organization from a
+cloud workspace's `.bitwave.toml`, even when the active platform organization is
+different or absent. Platform commands and workspace creation/rebinding still
+use the active or explicitly selected organization. This resolution is terminal
+adapter behavior only: direct SDK callers must provide an organization matching
+the bound cloud workspace, and cannot select another organization via its files.
+
+Local ledger/workspace operations are serialized per canonical workspace root
+within one process to keep journal updates and returned entry IDs consistent.
+Independent workspaces and remote-only operations remain concurrent. Callers
+sharing files across processes/replicas need external coordination and must
+not configure overlapping managed workspace roots.
+
+Interactive login, credential/org selection, self-update, telemetry, and shell
+completion remain terminal-only. Mutation retries are not automatically
+deduplicated: callers must use a downstream-supported idempotency mechanism or
+reconcile uncertain results before retrying.
 
 ## Sign in to Bitwave
 

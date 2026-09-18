@@ -14,7 +14,7 @@ func TestNormalizeArgsDefaultsToHelp(t *testing.T) {
 	}
 }
 
-func TestExecuteScopesAndRestoresInvocationContext(t *testing.T) {
+func TestExecuteDoesNotChangeInvocationEnvironment(t *testing.T) {
 	t.Setenv("BITWAVE_ORG_ID", "prior-org")
 	result := ExecuteWithOptions(context.Background(), ExecuteOptions{
 		Args:             []string{"report", "balance", "--help"},
@@ -31,7 +31,7 @@ func TestExecuteScopesAndRestoresInvocationContext(t *testing.T) {
 
 func TestExecuteDefaultsToRootHelp(t *testing.T) {
 	result := Execute(context.Background(), nil, "")
-	if result.ExitCode != 0 || !strings.Contains(result.Stdout, "agent-first accounting platform") {
+	if result.ExitCode != 0 || !strings.Contains(result.Stdout, "Bitwave accounting and platform operations") || !strings.Contains(result.Stdout, "Usage:") {
 		t.Fatalf("result = %#v", result)
 	}
 }

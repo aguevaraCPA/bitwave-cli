@@ -21,6 +21,33 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// Filesystem is the file access capability supplied by a request. The SDK uses
+// a rooted implementation; the terminal adapter retains ordinary OS access.
+type Filesystem interface {
+	Stat(string) (os.FileInfo, error)
+	ReadFile(string) ([]byte, error)
+	ReadDir(string) ([]os.DirEntry, error)
+	MkdirAll(string, os.FileMode) error
+	Create(string) (*os.File, error)
+	OpenFile(string, int, os.FileMode) (*os.File, error)
+	WriteFile(string, []byte, os.FileMode) error
+}
+
+type osFilesystem struct{}
+
+func (osFilesystem) Stat(p string) (os.FileInfo, error)      { return os.Stat(p) }
+func (osFilesystem) ReadFile(p string) ([]byte, error)       { return os.ReadFile(p) }
+func (osFilesystem) ReadDir(p string) ([]os.DirEntry, error) { return os.ReadDir(p) }
+func (osFilesystem) MkdirAll(p string, m os.FileMode) error  { return os.MkdirAll(p, m) }
+func (osFilesystem) Create(p string) (*os.File, error)       { return os.Create(p) }
+func (osFilesystem) OpenFile(p string, f int, m os.FileMode) (*os.File, error) {
+	return os.OpenFile(p, f, m)
+}
+func (osFilesystem) WriteFile(p string, b []byte, m os.FileMode) error { return os.WriteFile(p, b, m) }
+
+// OSFilesystem is solely for the legacy terminal entry points.
+func OSFilesystem() Filesystem { return osFilesystem{} }
+
 // FileName is the workspace marker file.
 const FileName = ".bitwave.toml"
 
@@ -55,13 +82,20 @@ var legacyMarkers = []string{".bwx.toml", ".wavie.toml"}
 // is found before the filesystem root; if a pre-rename marker is found along
 // the way, the error says exactly how to adopt the workspace.
 func Find(start string) (string, error) {
+	return FindFS(OSFilesystem(), start)
+}
+
+// FindFS never probes through a filesystem capability's boundary.
+func FindFS(files Filesystem, start string) (string, error) {
 	dir := start
 	for {
-		if _, err := os.Stat(filepath.Join(dir, FileName)); err == nil {
+		if _, err := files.Stat(filepath.Join(dir, FileName)); err == nil {
 			return dir, nil
+		} else if !os.IsNotExist(err) {
+			return "", fmt.Errorf("%w: %v", ErrNotAWorkspace, err)
 		}
 		for _, legacy := range legacyMarkers {
-			if _, err := os.Stat(filepath.Join(dir, legacy)); err == nil {
+			if _, err := files.Stat(filepath.Join(dir, legacy)); err == nil {
 				return "", fmt.Errorf("%w; found pre-rename marker %s in %s — same format, only the filename changed: mv %s %s",
 					ErrNotAWorkspace, legacy, dir, filepath.Join(dir, legacy), filepath.Join(dir, FileName))
 			}
@@ -76,8 +110,12 @@ func Find(start string) (string, error) {
 
 // Load reads <dir>/.bitwave.toml.
 func Load(dir string) (*Config, error) {
+	return LoadFS(OSFilesystem(), dir)
+}
+
+func LoadFS(files Filesystem, dir string) (*Config, error) {
 	path := filepath.Join(dir, FileName)
-	data, err := os.ReadFile(path)
+	data, err := files.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, ErrNotAWorkspace
@@ -96,10 +134,14 @@ func Load(dir string) (*Config, error) {
 
 // Save writes the config to <dir>/.bitwave.toml with 0644 perms.
 func Save(dir string, c *Config) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	return SaveFS(OSFilesystem(), dir, c)
+}
+
+func SaveFS(files Filesystem, dir string, c *Config) error {
+	if err := files.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	f, err := os.Create(filepath.Join(dir, FileName))
+	f, err := files.Create(filepath.Join(dir, FileName))
 	if err != nil {
 		return err
 	}

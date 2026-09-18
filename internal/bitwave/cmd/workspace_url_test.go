@@ -3,34 +3,14 @@ package cmd
 import (
 	"bytes"
 	"context"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/bitwave-io/bitwave-cli/internal/bitwave/config"
 	"github.com/bitwave-io/bitwave-cli/internal/orgctx"
 )
-
-// captureStdout runs fn while os.Stdout is redirected, returning what was
-// printed. The CLI commands print user-facing output via fmt.Println to the
-// real stdout (repo convention), so cmd.SetOut does not capture it.
-func captureStdout(t *testing.T, fn func()) string {
-	t.Helper()
-	orig := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Stdout = w
-	defer func() { os.Stdout = orig }()
-	fn()
-	_ = w.Close()
-	data, _ := io.ReadAll(r)
-	return string(data)
-}
 
 // setActiveOrg points ~/.bitwave at a temp HOME and records an active org so
 // requireActiveOrg succeeds inside tests. A BITWAVE_TOKEN is set so the org
@@ -67,21 +47,20 @@ func TestWorkspaceURL_CloudMode_PrintsURL(t *testing.T) {
 	defer srv.Close()
 	t.Setenv("BITWAVE_BASE_URL_GL", srv.URL)
 
-	cmd := newWorkspaceURLCmd()
+	cmd := sdkCommand(sdkDefinition("workspace", "url"))
 	cmd.SetArgs([]string{})
 	var errBuf bytes.Buffer
 	cmd.SetErr(&errBuf)
-	var execErr error
-	out := captureStdout(t, func() {
-		execErr = cmd.ExecuteContext(context.Background())
-	})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	execErr := cmd.ExecuteContext(context.Background())
 	if execErr != nil {
 		t.Fatalf("execute: %v\n%s", execErr, errBuf.String())
 	}
 	if gotPath != "/v1/workspaces/ws-1" {
 		t.Errorf("path: %s", gotPath)
 	}
-	if got := strings.TrimSpace(out); got != "https://api.bitwave.io/ui/workspaces/ws-1" {
+	if got := strings.TrimSpace(out.String()); got != "https://api.bitwave.io/ui/workspaces/ws-1" {
 		t.Errorf("output: %q", got)
 	}
 }
@@ -90,7 +69,7 @@ func TestWorkspaceURL_LocalMode_Errors(t *testing.T) {
 	// setupWorkspace leaves the workspace in local mode.
 	setupWorkspace(t)
 
-	cmd := newWorkspaceURLCmd()
+	cmd := sdkCommand(sdkDefinition("workspace", "url"))
 	cmd.SetArgs([]string{})
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -126,7 +105,7 @@ func TestWorkspaceURL_ServerWithoutURL_Errors(t *testing.T) {
 	defer srv.Close()
 	t.Setenv("BITWAVE_BASE_URL_GL", srv.URL)
 
-	cmd := newWorkspaceURLCmd()
+	cmd := sdkCommand(sdkDefinition("workspace", "url"))
 	cmd.SetArgs([]string{})
 	var out bytes.Buffer
 	cmd.SetOut(&out)

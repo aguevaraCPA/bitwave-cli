@@ -330,11 +330,21 @@ func (c *Client) UploadImportFile(ctx context.Context, uploadURL, path string) e
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, file)
+	return c.UploadImportReader(ctx, uploadURL, file, info.Size())
+}
+
+// UploadImportReader uploads an already-opened invocation-scoped input. The
+// caller owns the reader and its lifetime; this method never resolves a path.
+func (c *Client) UploadImportReader(ctx context.Context, uploadURL string, reader io.Reader, size int64) error {
+	parsed, err := url.Parse(uploadURL)
+	if err != nil || !allowedImportUploadURL(parsed) {
+		return errors.New("import service returned an invalid signed upload URL")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, reader)
 	if err != nil {
 		return errors.New("build signed import upload request")
 	}
-	req.ContentLength = info.Size()
+	req.ContentLength = size
 	req.Header.Set("Content-Type", "text/csv")
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {

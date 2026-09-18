@@ -23,13 +23,14 @@ func newOrgCmd() *cobra.Command {
 --org-id on every call.`,
 	}
 	cmd.AddCommand(newOrgCurrentCmd())
-	cmd.AddCommand(newOrgListCmd())
 	cmd.AddCommand(newOrgUseCmd())
 	cmd.AddCommand(newOrgCreateCmd())
 	cmd.AddCommand(newOrgClearCmd())
-	cmd.AddCommand(newOrgWalletsCmd())
-	cmd.AddCommand(newOrgAccountingCmd())
-	cmd.AddCommand(newOrgAdminCmd())
+	for _, definition := range sdkDefinition("org").Commands() {
+		if definition.Name() != "current" {
+			cmd.AddCommand(sdkCommand(definition))
+		}
+	}
 	return cmd
 }
 
@@ -41,42 +42,14 @@ func newOrgCurrentCmd() *cobra.Command {
 			a, err := orgctx.Load()
 			if err != nil {
 				if errors.Is(err, orgctx.ErrNoActiveOrg) {
-					fmt.Fprintln(os.Stderr, "No active org. Run `bitwave org use` to pick one.")
-					os.Exit(1)
+					fmt.Fprintln(cmd.ErrOrStderr(), "No active org. Run `bitwave org use` to pick one.")
 				}
 				return err
 			}
 			if a.OrgName != "" {
-				fmt.Printf("%s  (%s)\n", a.OrgID, a.OrgName)
+				fmt.Fprintf(cmd.OutOrStdout(), "%s  (%s)\n", a.OrgID, a.OrgName)
 			} else {
-				fmt.Println(a.OrgID)
-			}
-			return nil
-		},
-	}
-}
-
-func newOrgListCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "list",
-		Short: "List orgs you have access to",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			c := orgs.New(resolveCoreBaseURL(), makeTokenResolver())
-			list, err := c.List()
-			if err != nil {
-				return fmt.Errorf("list orgs: %w", err)
-			}
-			active, _ := orgctx.Load()
-			if len(list) == 0 {
-				fmt.Println("(no orgs)")
-				return nil
-			}
-			for _, o := range list {
-				marker := "  "
-				if active != nil && o.ID == active.OrgID {
-					marker = "* "
-				}
-				fmt.Printf("%s%-32s  %s\n", marker, o.ID, o.Name)
+				fmt.Fprintln(cmd.OutOrStdout(), a.OrgID)
 			}
 			return nil
 		},

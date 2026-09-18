@@ -6,6 +6,7 @@ package workspaces
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,6 +40,7 @@ type Client struct {
 	OrgId         string
 	TokenResolver func() (string, error)
 	HTTPClient    *http.Client
+	Context       context.Context
 }
 
 // New returns a Client with a 30s default timeout.
@@ -64,7 +66,11 @@ func (c *Client) do(method, path string, body any) ([]byte, error) {
 		}
 		r = bytes.NewReader(b)
 	}
-	req, err := http.NewRequest(method, c.BaseURL+path, r)
+	ctx := c.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, r)
 	if err != nil {
 		return nil, err
 	}
