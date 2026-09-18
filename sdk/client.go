@@ -43,8 +43,22 @@ func NewClient(options Options) *Client { return &Client{options: options} }
 // Operations describes exactly the shared business handlers available to both
 // adapters. Schemas come from declared parameter types, never terminal help.
 func Operations() ([]Operation, error) { return operation.Descriptors(operations.NewRoot()) }
-func (c *Client) Invoke(ctx context.Context, request Request) (Result, error) {
-	result := Result{Operation: request.Operation}
+
+// ErrOperationPanic intentionally contains no recovered value, credentials,
+// request input, stack, or partial output. Recovery cannot undo a mutation.
+var ErrOperationPanic = errors.New("internal SDK operation failure; outcome may be unknown; do not automatically retry mutations")
+
+// Invoke contains panics on its calling goroutine, after deferred workspace
+// unlock/filesystem cleanup. It cannot contain panics on separate goroutines or
+// fatal runtime failures. Terminal output already written cannot be recalled.
+func (c *Client) Invoke(ctx context.Context, request Request) (result Result, err error) {
+	result = Result{Operation: request.Operation}
+	defer func() {
+		if recover() != nil {
+			result = Result{Operation: request.Operation}
+			err = ErrOperationPanic
+		}
+	}()
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
@@ -53,16 +67,19 @@ func (c *Client) Invoke(ctx context.Context, request Request) (Result, error) {
 	if d == nil {
 		return result, fmt.Errorf("unknown Bitwave operation %q", request.Operation)
 	}
+	return c.invoke(ctx, request, d)
+}
+
+// invoke is shared execution for a resolved definition. Keeping policy here
+// makes arbitrary future endpoint parameter names subject to the same checks.
+func (c *Client) invoke(ctx context.Context, request Request, d *operation.Definition) (Result, error) {
+	result := Result{Operation: request.Operation}
 	args, err := operation.BindInput(d, request.Arguments)
 	if err != nil {
 		return result, err
 	}
-	if !c.options.AllowEndpointOverrides {
-		for _, name := range []string{"base-url", "rpc-url"} {
-			if flag := d.Flags().Lookup(name); flag != nil && flag.Changed {
-				return result, fmt.Errorf("%s is managed by the SDK caller", name)
-			}
-		}
+	if err := d.ValidateEndpointOverrides(c.options.AllowEndpointOverrides); err != nil {
+		return result, err
 	}
 	runtime, err := operation.NewRuntime(c.options)
 	if err != nil {

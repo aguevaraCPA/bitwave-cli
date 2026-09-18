@@ -89,6 +89,9 @@ status; older blocks are marked cleared (*).`,
 	cmd.Flags().IntVar(&f.limit, "limit", 200, "Server page size")
 	cmd.Flags().IntVar(&f.pageMax, "max-pages", 100, "Safety cap on pagination loops")
 	cmd.Flags().StringVar(&f.baseURL, "base-url", "", "Override the Bitwave blockchain query API base URL")
+	if err := cmd.MarkEndpointParameter("base-url"); err != nil {
+		panic(err) // Invalid static operation definition, never caller input.
+	}
 	cmd.Flags().StringVar(&f.journalFlag, "journal", "", "Journal id (defaults to workspace default)")
 	cmd.Flags().BoolVar(&f.dryRun, "dry-run", false, "Print what would be written without modifying the journal")
 	cmd.Flags().IntVar(&f.confirmations, "confirmations", 12, "Blocks of confirmation required before an entry is marked cleared")

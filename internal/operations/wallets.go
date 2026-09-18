@@ -212,6 +212,9 @@ func newWalletsSendCmd() *operation.Definition {
 	cmd.Flags().StringVar(&f.contact, "contact", "", "Payee for the journal entry")
 	cmd.Flags().StringVar(&f.memo, "memo", "", "Free-form memo on the entry")
 	cmd.Flags().StringVar(&f.rpcURL, "rpc-url", "", "Override the RPC URL for the network")
+	if err := cmd.MarkEndpointParameter("rpc-url"); err != nil {
+		panic(err) // Invalid static operation definition, never caller input.
+	}
 	cmd.Flags().StringVar(&f.maxFeeGwei, "max-fee-gwei", "", "EIP-1559 max fee per gas (gwei)")
 	cmd.Flags().StringVar(&f.maxPriorityGwei, "max-priority-fee-gwei", "", "EIP-1559 priority fee (gwei)")
 	cmd.Flags().Uint64Var(&f.gasLimit, "gas-limit", 0, "Gas limit (defaults to 21000 for value transfers)")

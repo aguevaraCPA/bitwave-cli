@@ -132,6 +132,28 @@ supplied with `sdk.Request.Input` (or the generic tool's `stdin` field) for
 `--input -` and `--body-file -`. Hosted results are bounded to 1 MiB per output
 stream; terminal adapters can provide streaming output writers.
 
+Each catalog entry's `EndpointParameters` lists declared network-destination
+inputs. The SDK rejects these when `AllowEndpointOverrides` is false, regardless
+of their flag names. Hosted adapters should also omit them from tool schemas;
+ordinary URL-valued data is not automatically an endpoint override. New operation
+parameters must pass the reviewed catalog-policy snapshot in
+`sdk/testdata/catalog_parameter_policy.txt`, including additions to existing
+operations. Endpoint metadata is a declaration, not automatic URL inference.
+
+`Client.Invoke` contains panics on its calling goroutine and returns the sanitized
+`sdk.ErrOperationPanic`, detectable with `errors.Is`. It releases workspace locks
+and closes request filesystems, discarding partial captured output. It cannot
+undo completed writes, retract streamed terminal output, catch another goroutine's
+panic, or recover fatal runtime failures. Treat mutation outcomes as unknown and
+do not automatically retry after this error.
+
+Terminal workspace-ledger commands derive their request organization from a
+cloud workspace's `.bitwave.toml`, even when the active platform organization is
+different or absent. Platform commands and workspace creation/rebinding still
+use the active or explicitly selected organization. This resolution is terminal
+adapter behavior only: direct SDK callers must provide an organization matching
+the bound cloud workspace, and cannot select another organization via its files.
+
 Local ledger/workspace operations are serialized per canonical workspace root
 within one process to keep journal updates and returned entry IDs consistent.
 Independent workspaces and remote-only operations remain concurrent. Callers

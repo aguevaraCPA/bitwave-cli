@@ -6,11 +6,13 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/bitwave-io/bitwave-cli/internal/bitwave/config"
 	"github.com/bitwave-io/bitwave-cli/internal/operation"
 	"github.com/bitwave-io/bitwave-cli/internal/operations"
 	"github.com/bitwave-io/bitwave-cli/internal/orgctx"
@@ -43,7 +45,7 @@ func sdkCommand(d *operation.Definition) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			opts, err := terminalSDKOptions(cmd)
+			opts, err := terminalSDKOptionsForOperation(cmd, d)
 			if err != nil {
 				return err
 			}
@@ -159,6 +161,48 @@ func terminalSDKOptions(cmd *cobra.Command) (sdk.Options, error) {
 		BlockchainQueryBaseURL: baseQuery, IdentityEmail: resolveIdentityEmail(),
 		UnrestrictedFiles: true, AllowEndpointOverrides: true,
 	}, nil
+}
+
+// The terminal workspace-ledger surface historically used the org bound in
+// .bitwave.toml, not the globally active platform org. Resolve that choice before
+// entering the SDK, so its request-org and token-resolver checks remain strict.
+// Creation/rebinding and platform operations continue to use the active org.
+func terminalSDKOptionsForOperation(cmd *cobra.Command, d *operation.Definition) (sdk.Options, error) {
+	opts, err := terminalSDKOptions(cmd)
+	if err != nil || !terminalUsesBoundWorkspace(d.Path()) {
+		return opts, err
+	}
+	dir, err := config.Find(opts.WorkingDirectory)
+	if errors.Is(err, config.ErrNotAWorkspace) {
+		// Let the business handler give its normal missing-workspace guidance.
+		return opts, nil
+	}
+	if err != nil {
+		return sdk.Options{}, err
+	}
+	cfg, err := config.Load(dir)
+	if err != nil {
+		return sdk.Options{}, err
+	}
+	if cfg.Mode == config.ModeCloud {
+		opts.OrganizationID = cfg.OrgId
+	}
+	return opts, nil
+}
+
+func terminalUsesBoundWorkspace(path []string) bool {
+	if len(path) == 0 {
+		return false
+	}
+	switch path[0] {
+	case "journal", "je", "acct", "price", "wallets", "expense", "bal", "reg",
+		"print", "accounts", "contacts", "commodities", "equity", "cleared", "csv", "stats", "share", "shares":
+		return true
+	case "workspace":
+		return len(path) == 2 && (path[1] == "current" || path[1] == "url")
+	default:
+		return false
+	}
 }
 
 func sdkDefinition(path ...string) *operation.Definition {

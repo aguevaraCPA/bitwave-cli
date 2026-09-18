@@ -42,6 +42,7 @@ type Definition struct {
 	children                  []*Definition
 	parent                    *Definition
 	required                  map[string]bool
+	endpointParameters        map[string]bool
 }
 
 func (d *Definition) Flags() *pflag.FlagSet {
@@ -88,6 +89,43 @@ func (d *Definition) MarkFlagRequired(name string) error {
 	return nil
 }
 func (d *Definition) Required(name string) bool { return d.required[name] }
+
+// MarkEndpointParameter declares a caller-selected network destination. SDK
+// hosts control whether these inputs may override their configured endpoints;
+// the policy is independent of the parameter's spelling.
+func (d *Definition) MarkEndpointParameter(name string) error {
+	flag := d.Flags().Lookup(name)
+	if flag == nil || flag.Value.Type() != "string" {
+		return fmt.Errorf("endpoint parameter %q must be a declared string flag", name)
+	}
+	if d.endpointParameters == nil {
+		d.endpointParameters = make(map[string]bool)
+	}
+	d.endpointParameters[name] = true
+	return nil
+}
+
+// EndpointParameters returns a sorted copy for discovery and adapter policy.
+func (d *Definition) EndpointParameters() []string {
+	var names []string
+	for name := range d.endpointParameters {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func (d *Definition) ValidateEndpointOverrides(allow bool) error {
+	if !allow {
+		for _, name := range d.EndpointParameters() {
+			if d.Flags().Changed(name) {
+				return fmt.Errorf("%s is managed by the SDK caller", name)
+			}
+		}
+	}
+	return nil
+}
+
 func (d *Definition) Invoke(c *Call, args []string) error {
 	if err := d.Args.Validate(args); err != nil {
 		return err

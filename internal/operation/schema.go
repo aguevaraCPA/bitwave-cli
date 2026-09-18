@@ -16,6 +16,9 @@ type Descriptor struct {
 	Path        []string       `json:"path"`
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"inputSchema"`
+	// EndpointParameters are network-destination inputs, not arbitrary URL data.
+	// Hosted adapters should omit these from schemas and reject supplied values.
+	EndpointParameters []string `json:"endpointParameters,omitempty"`
 }
 
 func Descriptors(root *Definition) ([]Descriptor, error) {
@@ -43,7 +46,7 @@ func Descriptors(root *Definition) ([]Descriptor, error) {
 			if description == "" {
 				description = strings.TrimSpace(d.Short)
 			}
-			result = append(result, Descriptor{Name: name, Path: append([]string(nil), path...), Description: description, InputSchema: schema})
+			result = append(result, Descriptor{Name: name, Path: append([]string(nil), path...), Description: description, InputSchema: schema, EndpointParameters: d.EndpointParameters()})
 		}
 		for _, child := range d.Commands() {
 			if err := walk(child, append(append([]string(nil), path...), child.Name())); err != nil {

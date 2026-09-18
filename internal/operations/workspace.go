@@ -210,7 +210,10 @@ func newWorkspaceUseCmd() *operation.Definition {
 				picked = ws[n-1]
 			}
 
-			cfg, dir, err := loadCwdConfig(cmd.Context())
+			// Rebinding reads only the old local marker for display defaults.
+			// It must not authorize/read the old org's workspace data. The target
+			// workspace was resolved above using the explicit request org/token.
+			cfg, dir, err := readCwdConfig(cmd.Context())
 			if err != nil && !errors.Is(err, config.ErrNotAWorkspace) {
 				return err
 			}
@@ -277,6 +280,19 @@ which creates the workspace and binds the directory in one step.`,
 
 // loadCwdConfig finds the nearest .bitwave.toml from cwd and returns it.
 func loadCwdConfig(ctx context.Context) (*config.Config, string, error) {
+	cfg, dir, err := readCwdConfig(ctx)
+	if err != nil {
+		return nil, dir, err
+	}
+	if cfg.Mode == config.ModeCloud && cfg.OrgId != operation.RuntimeFrom(ctx).Options.OrganizationID {
+		return nil, dir, fmt.Errorf("cloud workspace organization %q does not match request organization %q", cfg.OrgId, operation.RuntimeFrom(ctx).Options.OrganizationID)
+	}
+	return cfg, dir, nil
+}
+
+// readCwdConfig reads only the local marker through the request filesystem.
+// Workspace data access must use loadCwdConfig's org-bound validation instead.
+func readCwdConfig(ctx context.Context) (*config.Config, string, error) {
 	runtime := operation.RuntimeFrom(ctx)
 	cwd := runtime.Options.WorkingDirectory
 	dir, err := config.FindFS(runtime.Files, cwd)
@@ -289,9 +305,6 @@ func loadCwdConfig(ctx context.Context) (*config.Config, string, error) {
 	cfg, err := config.LoadFS(runtime.Files, dir)
 	if err != nil {
 		return nil, dir, err
-	}
-	if cfg.Mode == config.ModeCloud && cfg.OrgId != runtime.Options.OrganizationID {
-		return nil, dir, fmt.Errorf("cloud workspace organization %q does not match request organization %q", cfg.OrgId, runtime.Options.OrganizationID)
 	}
 	return cfg, dir, nil
 }
