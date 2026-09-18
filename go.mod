@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/bitwave-io/bitwave-accounting-sdk v0.2.2-0.20260917200036-5517875719c8
+	github.com/bitwave-io/bitwave-accounting-sdk v0.3.0
 	github.com/bitwave-io/bitwave-wallet-sdk v0.2.0
 	github.com/ethereum/go-ethereum v1.15.11
 	github.com/shopspring/decimal v1.4.0
