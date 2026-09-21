@@ -34,6 +34,12 @@ type Wallet struct {
 	Address      string   `json:"address,omitempty"`
 	Addresses    []string `json:"addresses,omitempty"`
 	SubsidiaryID string   `json:"subsidiaryId,omitempty"`
+	// VaultAddress is set only for DeFi position wallets: the pool / vault /
+	// staking-contract address the position lives in. Address is then the
+	// user's own wallet address on that network.
+	VaultAddress string `json:"vaultAddress,omitempty"`
+	// Protocol is the DeFi protocol label stored on a DeFi position wallet.
+	Protocol string `json:"protocol,omitempty"`
 }
 
 type Subsidiary struct {

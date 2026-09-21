@@ -45,11 +45,28 @@ var organizationWalletNetworkAliases = map[string]string{
 
 const organizationWalletSyncExpectation = "Wallet data typically appears within 15 minutes but can take up to 24 hours, depending on transaction history volume and network load."
 
+// Wallet kinds accepted by `org wallets add`. blockchain is the modern
+// accountBasedBlockchain contract; defi is a DeFi position wallet (wallet
+// address + vault/pool/staking-contract address) synced by sync-coordinator.
+const (
+	orgWalletTypeBlockchain = "blockchain"
+	orgWalletTypeDefi       = "defi"
+)
+
 type orgWalletInput struct {
-	Name                    string         `json:"name"`
-	Description             string         `json:"description,omitempty"`
-	Address                 string         `json:"address"`
-	NetworkID               string         `json:"networkId"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Type is blockchain (default) or defi.
+	Type      string `json:"type,omitempty"`
+	Address   string `json:"address"`
+	NetworkID string `json:"networkId"`
+	// VaultAddress is required for defi wallets: the pool, vault, or staking
+	// contract the position lives in (for Monad native staking this is the
+	// fixed precompile 0x0000000000000000000000000000000000001000).
+	VaultAddress string `json:"vaultAddress,omitempty"`
+	// Protocol optionally labels the DeFi protocol; the backend resolves the
+	// protocol from the vault address, so this is informational.
+	Protocol                string         `json:"protocol,omitempty"`
 	SubsidiaryID            string         `json:"subsidiaryId,omitempty"`
 	AddressType             string         `json:"addressType,omitempty"`
 	SyncStartDateSEC        int64          `json:"syncStartDateSEC,omitempty"`
@@ -62,7 +79,10 @@ type orgWalletAddFlags struct {
 	transactionMutationFlags
 	input                 string
 	name                  string
+	walletType            string
 	address               string
+	vaultAddress          string
+	protocol              string
 	network               string
 	subsidiary            string
 	addressType           string
@@ -85,7 +105,7 @@ use the same accountBasedBlockchain creation contract as Bitwave Add Source.
 After creation, data typically appears within 15 minutes but can take up to 24
 hours depending on transaction history volume and network load.`,
 	}
-	cmd.AddCommand(newOrgWalletsListCmd(), newOrgWalletsNetworksCmd(), newOrgWalletsAddCmd(), newOrgWalletsRollupCmd(), newOrgWalletResyncCmd())
+	cmd.AddCommand(newOrgWalletsListCmd(), newOrgWalletsNetworksCmd(), newOrgWalletsAddCmd(), newOrgWalletsRollupCmd(), newOrgWalletResyncCmd(), newOrgWalletDefiScheduleCmd())
 	return cmd
 }
 
@@ -116,6 +136,10 @@ func newOrgWalletsListCmd() *op.Definition {
 				address := wallet.Address
 				if address == "" && len(wallet.Addresses) > 0 {
 					address = strings.Join(wallet.Addresses, ",")
+				}
+				if wallet.VaultAddress != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%s\t%s\tvault=%s\n", wallet.ID, wallet.Name, wallet.NetworkID, address, wallet.SubsidiaryID, wallet.VaultAddress)
+					continue
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%s\t%s\n", wallet.ID, wallet.Name, wallet.NetworkID, address, wallet.SubsidiaryID)
 			}
@@ -164,6 +188,12 @@ func newOrgWalletsAddCmd() *op.Definition {
 array (or {"wallets": [...]}) for a batch. Address type defaults to address;
 use --address-type hd for a BTC or DASH xpub/derivation key.
 
+Use --type defi with --vault-address to add a DeFi position wallet: --address
+is your wallet on the network and --vault-address is the pool / vault /
+staking contract the position lives in (batch JSON: "type": "defi" plus
+"vaultAddress"). DeFi wallets are synced by sync-coordinator; after creating
+one, run 'bitwave org wallets defi-schedule WALLET' to start the position sync.
+
 Creating a wallet starts asynchronous ingestion. Data typically appears within
 15 minutes but can take up to 24 hours depending on transaction history volume
 and network load.`,
@@ -172,7 +202,10 @@ and network load.`,
 	addMutationFlags(cmd, &f.transactionMutationFlags)
 	cmd.Flags().StringVarP(&f.input, "input", "i", "", "Wallet JSON file, or - for stdin")
 	cmd.Flags().StringVar(&f.name, "name", "", "Wallet name (single-wallet mode)")
+	cmd.Flags().StringVar(&f.walletType, "type", orgWalletTypeBlockchain, "Wallet kind: blockchain or defi")
 	cmd.Flags().StringVar(&f.address, "address", "", "Wallet address or HD derivation key")
+	cmd.Flags().StringVar(&f.vaultAddress, "vault-address", "", "DeFi pool / vault / staking contract address (required with --type defi)")
+	cmd.Flags().StringVar(&f.protocol, "protocol", "", "Optional DeFi protocol label (--type defi)")
 	cmd.Flags().StringVar(&f.network, "network", "", "Canonical network ID or common network name")
 	cmd.Flags().StringVar(&f.subsidiary, "subsidiary", "", "Subsidiary ID")
 	cmd.Flags().StringVar(&f.addressType, "address-type", "address", "Address type: address or hd")
@@ -303,7 +336,7 @@ func organizationWalletSyncGuidance() map[string]any {
 
 func loadOrgWalletInputs(ctx context.Context, f orgWalletAddFlags, stdin io.Reader) ([]orgWalletInput, error) {
 	if f.input == "" {
-		return []orgWalletInput{{Name: f.name, Address: f.address, NetworkID: f.network, SubsidiaryID: f.subsidiary, AddressType: f.addressType, SyncStartDateSEC: f.syncStartDateSEC, ViewKey: f.viewKey, IsBalanceMonitoringOnly: f.balanceMonitoringOnly}}, nil
+		return []orgWalletInput{{Name: f.name, Type: f.walletType, Address: f.address, VaultAddress: f.vaultAddress, Protocol: f.protocol, NetworkID: f.network, SubsidiaryID: f.subsidiary, AddressType: f.addressType, SyncStartDateSEC: f.syncStartDateSEC, ViewKey: f.viewKey, IsBalanceMonitoringOnly: f.balanceMonitoringOnly}}, nil
 	}
 	var data []byte
 	var err error
@@ -334,6 +367,9 @@ func normalizeAndValidateOrgWallet(input *orgWalletInput) error {
 	input.NetworkID = strings.ToLower(strings.TrimSpace(input.NetworkID))
 	input.SubsidiaryID = strings.TrimSpace(input.SubsidiaryID)
 	input.AddressType = strings.ToLower(strings.TrimSpace(input.AddressType))
+	input.Type = strings.ToLower(strings.TrimSpace(input.Type))
+	input.VaultAddress = strings.TrimSpace(input.VaultAddress)
+	input.Protocol = strings.TrimSpace(input.Protocol)
 	if alias := organizationWalletNetworkAliases[input.NetworkID]; alias != "" {
 		input.NetworkID = alias
 	}
@@ -346,11 +382,33 @@ func normalizeAndValidateOrgWallet(input *orgWalletInput) error {
 	if input.NetworkID == "" {
 		return errors.New("networkId is required")
 	}
+	if input.Type == "" {
+		input.Type = orgWalletTypeBlockchain
+	}
+	if input.Type != orgWalletTypeBlockchain && input.Type != orgWalletTypeDefi {
+		return fmt.Errorf("type must be %s or %s", orgWalletTypeBlockchain, orgWalletTypeDefi)
+	}
 	if input.AddressType == "" {
 		input.AddressType = "address"
 	}
 	if input.AddressType != "address" && input.AddressType != "hd" {
 		return errors.New("addressType must be address or hd")
+	}
+	if input.Type == orgWalletTypeDefi {
+		if input.VaultAddress == "" {
+			return errors.New("vaultAddress is required for defi wallets")
+		}
+		if strings.Contains(input.VaultAddress, " ") {
+			return errors.New("vaultAddress cannot contain spaces")
+		}
+		if input.AddressType != "address" {
+			return errors.New("defi wallets require addressType address")
+		}
+		if input.ViewKey != "" {
+			return errors.New("defi wallets do not accept viewKey")
+		}
+	} else if input.VaultAddress != "" || input.Protocol != "" {
+		return errors.New("vaultAddress and protocol require type defi")
 	}
 	if input.AddressType == "hd" && input.NetworkID != "btc" && input.NetworkID != "dash" {
 		return fmt.Errorf("HD wallets are supported only for btc and dash, not %s", input.NetworkID)
@@ -366,7 +424,13 @@ func normalizeAndValidateOrgWallet(input *orgWalletInput) error {
 
 func buildOrgWalletPayload(input orgWalletInput) map[string]any {
 	var wallet map[string]any
-	if input.AddressType == "hd" {
+	if input.Type == orgWalletTypeDefi {
+		defi := map[string]any{"networkId": input.NetworkID, "walletAddress": input.Address, "vaultAddress": input.VaultAddress, "isSyncEnabled": true}
+		if input.Protocol != "" {
+			defi["protocol"] = input.Protocol
+		}
+		wallet = map[string]any{"name": input.Name, "type": orgWalletTypeDefi, "defi": defi}
+	} else if input.AddressType == "hd" {
 		wallet = map[string]any{"name": input.Name, "type": "watch", "watch": map[string]any{"coin": strings.ToUpper(input.NetworkID), "type": "hd", "derivationKey": input.Address}}
 	} else {
 		blockchain := map[string]any{"address": input.Address, "networkId": input.NetworkID}
@@ -427,6 +491,14 @@ func findExistingOrgWallet(wallets []orgreports.Wallet, input orgWalletInput) *o
 		if !strings.EqualFold(wallet.NetworkID, input.NetworkID) {
 			continue
 		}
+		// A DeFi position is identified by (wallet, vault): the same wallet
+		// can legitimately hold positions in several pools, and a plain
+		// blockchain wallet for the address is not the same source.
+		if input.Type == orgWalletTypeDefi || wallet.VaultAddress != "" {
+			if !strings.EqualFold(strings.TrimSpace(wallet.VaultAddress), input.VaultAddress) {
+				continue
+			}
+		}
 		addresses := append([]string{wallet.Address}, wallet.Addresses...)
 		for _, address := range addresses {
 			if strings.EqualFold(strings.TrimSpace(address), input.Address) {
@@ -438,5 +510,5 @@ func findExistingOrgWallet(wallets []orgreports.Wallet, input orgWalletInput) *o
 }
 
 func sameOrgWalletInput(a, b orgWalletInput) bool {
-	return strings.EqualFold(a.NetworkID, b.NetworkID) && strings.EqualFold(a.Address, b.Address)
+	return strings.EqualFold(a.NetworkID, b.NetworkID) && strings.EqualFold(a.Address, b.Address) && strings.EqualFold(a.VaultAddress, b.VaultAddress)
 }
