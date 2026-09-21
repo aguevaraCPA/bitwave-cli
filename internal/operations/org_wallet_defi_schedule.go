@@ -32,6 +32,10 @@ address (for example Aerodrome on Base, or Monad native staking on the
 the first run immediately. Re-running reports ALREADY_EXISTS and leaves the
 existing schedule untouched.
 
+The Bitwave API does not currently return a network on DeFi wallet records, so
+pass --network for a single wallet (the CLI asks for it when it cannot infer
+one).
+
 Use --dry-run to print the exact request. Use --yes to create the schedule.`,
 		Args: op.RangeArgs(0, 1),
 		RunE: func(cmd *op.Call, args []string) error { return runOrgWalletDefiSchedule(cmd, f, args) },

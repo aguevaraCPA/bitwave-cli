@@ -388,7 +388,7 @@ $ bitwave org use ORG_ID
 $ bitwave org wallets networks
 $ bitwave org wallets add --name Treasury --address 0xABCD...1234 --network eth --yes
 $ bitwave org wallets add --name "Monad Staking" --type defi --network monad --address 0xABCD...1234 --vault-address 0x0000000000000000000000000000000000001000 --yes
-$ bitwave org wallets defi-schedule "Monad Staking" --yes
+$ bitwave org wallets defi-schedule "Monad Staking" --network monad --yes
 $ bitwave org wallets list --json
 ```
 
