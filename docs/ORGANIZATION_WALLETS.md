@@ -87,6 +87,58 @@ reported as `skipped_existing`; use `--allow-duplicate` only when intentional.
 If a batch fails partway through, the JSON response identifies created and failed
 items so an agent can safely retry.
 
+## Add a DeFi position wallet
+
+A DeFi wallet tracks one position: your wallet address plus the pool, vault, or
+staking contract the position lives in. Bitwave's sync-coordinator resolves the
+protocol from the vault address and syncs balances, movements, and rewards.
+
+```bash
+bitwave org wallets add \
+  --name "Monad Staking" \
+  --type defi \
+  --network monad \
+  --address 0xYourDelegatorWallet \
+  --vault-address 0x0000000000000000000000000000000000001000 \
+  --yes
+```
+
+Batch JSON uses `"type": "defi"` with `vaultAddress` (and an optional
+informational `protocol`). Duplicate detection for DeFi wallets is per
+(network, wallet address, vault address), so one wallet can hold positions in
+several pools. Supported vaults today: Soroswap / Aquarius / Blend / Phoenix /
+FxDAO pools on Stellar, Aerodrome and Arrakis on Base, Canton synchronizer
+traffic (`traffic`), and Monad native staking (the `0x…1000` precompile).
+
+## Schedule DeFi position sync
+
+Creating a DeFi wallet does not start its position sync. Ask sync-coordinator
+to create the daily schedule (the first run starts immediately):
+
+```bash
+bitwave org wallets defi-schedule "Monad Staking" --dry-run --json
+bitwave org wallets defi-schedule "Monad Staking" --yes --json
+```
+
+The JSON result carries the resolved `protocol` (for example `MonadStaking` or
+`Aerodrome`), the Temporal `scheduleId`, and `status` (`SCHEDULED`, or
+`ALREADY_EXISTS` on a re-run, which leaves the existing schedule untouched).
+An unsupported vault for the network is rejected with the backend's reason.
+
+To schedule every DeFi wallet on one network at once:
+
+```bash
+bitwave org wallets defi-schedule --all --network monad --yes --json
+```
+
+Position data then flows into the normal transaction surface: Movement and
+Reward transactions land under the wallet, and the staked / pending-withdrawal
+balances appear in balance reports.
+
+```bash
+bitwave transaction search --wallet "Monad Staking" --limit 20 --json
+```
+
 ## Network-specific inputs
 
 All normal blockchain addresses use Bitwave's modern
