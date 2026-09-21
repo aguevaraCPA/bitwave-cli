@@ -36,6 +36,10 @@ type Result struct {
 	Diagnostics string          `json:"diagnostics,omitempty"`
 	Data        json.RawMessage `json:"data,omitempty"`
 	Truncated   bool            `json:"truncated,omitempty"`
+	// Stream-specific flags let hosted adapters distinguish an incomplete
+	// business result from truncated diagnostics. Truncated remains their OR.
+	OutputTruncated      bool `json:"outputTruncated,omitempty"`
+	DiagnosticsTruncated bool `json:"diagnosticsTruncated,omitempty"`
 }
 
 func NewClient(options Options) *Client { return &Client{options: options} }
@@ -113,6 +117,7 @@ func (c *Client) invoke(ctx context.Context, request Request, d *operation.Defin
 		result.Diagnostics = ""
 	}
 	result.Truncated = stdout.truncated || stderr.truncated
+	result.OutputTruncated, result.DiagnosticsTruncated = stdout.truncated, stderr.truncated
 	if b := bytes.TrimSpace(stdout.buffer.Bytes()); !stdout.truncated && json.Valid(b) {
 		result.Data = append(json.RawMessage(nil), b...)
 	}
