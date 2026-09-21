@@ -14,6 +14,9 @@ type DefiScheduleRequest struct {
 	WalletAddress   string `json:"walletAddress"`
 	ContractAddress string `json:"contractAddress"`
 	NetworkID       string `json:"networkId"`
+	// TriggerNow asks the backend to fire a run immediately when the schedule
+	// already exists (a newly created schedule always runs once right away).
+	TriggerNow bool `json:"triggerNow,omitempty"`
 }
 
 // DefiScheduleResponse reports the Temporal schedule sync-coordinator-svc

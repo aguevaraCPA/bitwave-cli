@@ -15,6 +15,7 @@ type orgWalletDefiScheduleFlags struct {
 	all            bool
 	network        string
 	cadenceSeconds int
+	trigger        bool
 }
 
 func newOrgWalletDefiScheduleCmd() *op.Definition {
@@ -30,7 +31,8 @@ command does. The backend resolves the protocol from the wallet's vault
 address (for example Aerodrome on Base, or Monad native staking on the
 0x…1000 precompile), creates one idempotent Temporal schedule, and triggers
 the first run immediately. Re-running reports ALREADY_EXISTS and leaves the
-existing schedule untouched.
+existing schedule untouched; add --trigger to fire a run now on an existing
+schedule (for example to re-run a failed first pass after a fix).
 
 The Bitwave API does not currently return a network on DeFi wallet records, so
 pass --network for a single wallet (the CLI asks for it when it cannot infer
@@ -44,6 +46,7 @@ Use --dry-run to print the exact request. Use --yes to create the schedule.`,
 	cmd.Flags().BoolVar(&f.all, "all", false, "Schedule every DeFi wallet on --network instead of one wallet")
 	cmd.Flags().StringVar(&f.network, "network", "", "Canonical network ID (required with --all; optional override for one wallet)")
 	cmd.Flags().IntVar(&f.cadenceSeconds, "cadence-seconds", 0, "Optional discovery cadence for --all (backend default when 0)")
+	cmd.Flags().BoolVar(&f.trigger, "trigger", false, "Fire a run now if the wallet's schedule already exists (single-wallet mode)")
 	return cmd
 }
 
@@ -94,7 +97,7 @@ func runOrgWalletDefiSchedule(cmd *op.Call, f orgWalletDefiScheduleFlags, args [
 	if err != nil {
 		return mutationError(cmd, operation, f.jsonOutput, err)
 	}
-	request := orgreports.DefiScheduleRequest{WalletAddress: wallet.Address, ContractAddress: wallet.VaultAddress, NetworkID: wallet.NetworkID}
+	request := orgreports.DefiScheduleRequest{WalletAddress: wallet.Address, ContractAddress: wallet.VaultAddress, NetworkID: wallet.NetworkID, TriggerNow: f.trigger}
 	preview := map[string]any{"method": "POST", "url": baseURL + orgreports.DefiWalletSchedulePath(orgID, wallet.ID), "body": request}
 	if f.dryRun {
 		return writeJSON(cmd.OutOrStdout(), mutationEnvelope{SchemaVersion: "1", Status: "preview", Operation: operation, Organization: orgID, DryRun: true, Request: preview, Result: map[string]any{"wallet": wallet}})
@@ -107,8 +110,11 @@ func runOrgWalletDefiSchedule(cmd *op.Call, f orgWalletDefiScheduleFlags, args [
 		return mutationError(cmd, operation, f.jsonOutput, fmt.Errorf("schedule defi position sync for wallet %s: %w", wallet.ID, err))
 	}
 	status := "scheduled"
-	if strings.EqualFold(result.Status, "ALREADY_EXISTS") {
+	switch {
+	case strings.EqualFold(result.Status, "ALREADY_EXISTS"):
 		status = "already_exists"
+	case strings.EqualFold(result.Status, "TRIGGERED"):
+		status = "triggered"
 	}
 	envelope := mutationEnvelope{SchemaVersion: "1", Status: status, Operation: operation, Organization: orgID, Request: preview, Result: map[string]any{"wallet": wallet, "schedule": result}}
 	human := fmt.Sprintf("DeFi position sync for %s (%s): protocol=%s schedule=%s status=%s\n%s\nCheck progress: bitwave transaction search --wallet %q --limit 5 --json\n",

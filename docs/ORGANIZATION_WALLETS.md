@@ -128,6 +128,8 @@ The JSON result carries the resolved `protocol` (for example `MonadStaking` or
 `Aerodrome`), the Temporal `scheduleId`, and `status` (`SCHEDULED`, or
 `ALREADY_EXISTS` on a re-run, which leaves the existing schedule untouched).
 An unsupported vault for the network is rejected with the backend's reason.
+Add `--trigger` to fire a run right now on a schedule that already exists
+(`status: TRIGGERED`), for example to re-run a failed first pass.
 
 To schedule every DeFi wallet on one network at once:
 
