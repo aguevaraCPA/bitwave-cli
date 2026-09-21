@@ -142,6 +142,63 @@ func TestDefiScheduleNetworkOverrideSkipsGraphQL(t *testing.T) {
 	}
 }
 
+func TestDefiScheduleTriggerSendsTriggerNowAndReportsTriggered(t *testing.T) {
+	var posted map[string]any
+	runtime, err := op.NewRuntime(op.Options{
+		WorkingDirectory: t.TempDir(), OrganizationID: "org-1", Token: "token", CoreBaseURL: "https://unit.invalid",
+		HTTPClient: &http.Client{Transport: businessTransport(func(r *http.Request) (*http.Response, error) {
+			switch {
+			case r.Method == http.MethodGet && r.URL.Path == "/orgs/org-1/wallets":
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Request: r, Body: io.NopCloser(strings.NewReader(`{"items":[{"id":"w-stake","name":"Monad Staking","address":"0xabc","vaultAddress":"0x1000"}]}`))}, nil
+			case r.Method == http.MethodPost && r.URL.Path == "/v3/orgs/org-1/wallets/w-stake/defi/wallet-schedule":
+				if err := json.NewDecoder(r.Body).Decode(&posted); err != nil {
+					return nil, err
+				}
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Request: r, Body: io.NopCloser(strings.NewReader(`{"scheduleId":"s","protocol":"MonadStaking","status":"TRIGGERED","message":"a run was triggered now"}`))}, nil
+			}
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+			return nil, nil
+		})},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+	definition := newOrgWalletDefiScheduleCmd()
+	var output bytes.Buffer
+	call := op.NewCall(op.WithRuntime(context.Background(), runtime), definition, nil, &output, io.Discard)
+	if err := definition.Flags().Parse([]string{"--yes", "--json", "--network", "monad", "--trigger"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := definition.Invoke(call, []string{"w-stake"}); err != nil {
+		t.Fatalf("%v (output: %s)", err, output.String())
+	}
+	if posted["triggerNow"] != true {
+		t.Fatalf("posted = %#v, want triggerNow=true", posted)
+	}
+	var result mutationEnvelope
+	if err := json.Unmarshal(output.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "triggered" {
+		t.Fatalf("status = %q, want triggered", result.Status)
+	}
+}
+
+func TestDefiScheduleWithoutTriggerOmitsTriggerNow(t *testing.T) {
+	cmd := testDefinition(newOrgWalletDefiScheduleCmd())
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--org", "org-1", "--all", "--network", "monad", "--dry-run"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "triggerNow") {
+		t.Fatalf("bulk request must not carry triggerNow: %s", out.String())
+	}
+}
+
 func TestDefiScheduleRejectsPlainWallet(t *testing.T) {
 	runtime, err := op.NewRuntime(op.Options{
 		WorkingDirectory: t.TempDir(), OrganizationID: "org-1", Token: "token", CoreBaseURL: "https://unit.invalid",
