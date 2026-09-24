@@ -29,12 +29,18 @@ type ExecuteOptions struct {
 	ClientOptions                                       Options
 }
 type CommandResult struct {
-	Command   []string `json:"command"`
-	Directory string   `json:"directory"`
-	ExitCode  int      `json:"exitCode"`
-	Stdout    string   `json:"stdout,omitempty"`
-	Stderr    string   `json:"stderr,omitempty"`
-	Truncated bool     `json:"truncated,omitempty"`
+	Command         []string `json:"command"`
+	Operation       string   `json:"operation,omitempty"`
+	Directory       string   `json:"directory"`
+	ExitCode        int      `json:"exitCode"`
+	Stdout          string   `json:"stdout,omitempty"`
+	Stderr          string   `json:"stderr,omitempty"`
+	Truncated       bool     `json:"truncated,omitempty"`
+	StdoutTruncated bool     `json:"stdoutTruncated,omitempty"`
+	StderrTruncated bool     `json:"stderrTruncated,omitempty"`
+	// Err preserves the original typed/wrapped failure for in-process callers.
+	// It is deliberately not serialized. Terminal Stderr behavior is unchanged.
+	Err error `json:"-"`
 }
 
 func ValidateArgs(args []string) error {
@@ -73,12 +79,15 @@ func ExecuteWithOptions(ctx context.Context, o ExecuteOptions) CommandResult {
 		return out
 	}
 	if err == nil {
+		out.Operation = req.Operation
 		req.Input = o.Input
 		var result Result
 		result, err = NewClient(opts).Invoke(ctx, req)
 		out.Stdout, out.Stderr, out.Truncated = result.Output, result.Diagnostics, result.Truncated
+		out.StdoutTruncated, out.StderrTruncated = result.OutputTruncated, result.DiagnosticsTruncated
 	}
 	if err != nil {
+		out.Err = err
 		out.ExitCode = 1
 		if errors.Is(err, context.Canceled) {
 			out.ExitCode = 130
